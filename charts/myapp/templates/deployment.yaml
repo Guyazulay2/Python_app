@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels:
+    app: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+      - name: backend
+        image: "{{ .Values.backend.image }}:{{ .Values.backend.tag }}"
+        ports:
+        - containerPort: 8000
+        env:
+        # 🔒 סודות נמשכים מתוך ה-values (שנשלחו ע"י ה-Pipeline)
+        - name: POSTGRES_USER
+          value: "{{ .Values.backend.env.DB_USER }}"
+        - name: POSTGRES_PASSWORD
+          value: "{{ .Values.backend.env.DB_PASSWORD }}"
+        - name: POSTGRES_DB
+          value: "prod_db" # קבוע
+        - name: DB_HOST
+          value: "my-postgres-service" # שם ה-Service של הדאטהבייס בקוב
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: frontend
+        image: "{{ .Values.frontend.image }}:{{ .Values.frontend.tag }}"
+        ports:
+        - containerPort: 80

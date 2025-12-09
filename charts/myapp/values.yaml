@@ -1,0 +1,9 @@
+backend:
+  image: REPLACE_ME_ACR_URL/backend-app # יושלם על ידי ה-Pipeline
+  tag: latest
+  env:
+    DB_USER: "" # יושלם מה-Pipeline Secrets
+    DB_PASSWORD: "" # יושלם מה-Pipeline Secrets
+frontend:
+  image: REPLACE_ME_ACR_URL/frontend-app # יושלם על ידי ה-Pipeline
+  tag: latest
