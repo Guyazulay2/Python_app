@@ -5,7 +5,7 @@ function App() {
 
   useEffect(() => {
     // פנייה ל-Backend
-    fetch('http://localhost:8000/api/hello')
+    fetch('http://backend:8000/api/hello')
       .then(response => response.json())
       .then(data => setData(data))
       .catch(err => console.error("Error fetching data:", err));
