@@ -1,0 +1,10 @@
+fastapi==0.100.0
+uvicorn==0.23.0
+psycopg2-binary==2.9.6
+prometheus-client==0.17.0
+sqlalchemy==2.0.19
+websockets  # <--- זה התיקון!
+pytest==7.4.0
+pytest-cov==4.1.0
+httpx==0.24.1
+flake8==6.0.0

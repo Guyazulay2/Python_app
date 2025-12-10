@@ -1,0 +1,25 @@
+backend:
+  image: REPLACE_ME_ACR_URL/backend-app
+  tag: latest
+  #  הסודות מוזרמים ישירות מה-Pipeline אל ה-Helm Chart
+  secrets:
+    DB_USER: "" 
+    DB_PASSWORD: "" 
+
+frontend:
+  image: REPLACE_ME_ACR_URL/frontend-app
+  tag: latest
+
+postgres:
+  image: postgres:15-alpine
+  # שם ה-Service שה-Backend משתמש בו להתחברות
+  serviceName: my-postgres-service 
+  # הגדרות אחסון קבוע
+  persistence:
+    enabled: true
+    storageClass: standard # השתמש ב-Storage Class המוגדר ב-AKS
+    accessMode: ReadWriteOnce
+    size: 5Gi
+  # הגדרות דאטהבייס
+  database:
+    name: prod_db # שם הדאטהבייס שקוד הפייתון מצפה לו

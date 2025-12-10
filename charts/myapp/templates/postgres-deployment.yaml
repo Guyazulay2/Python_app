@@ -1,0 +1,46 @@
+# charts/myapp/templates/postgres-deployment.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-deployment
+  labels:
+    app: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: {{ .Values.postgres.image }}
+        ports:
+        - containerPort: 5432
+        volumeMounts:
+        # הרכבת ה-PVC שנוצר
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        env:
+          # 🔑 הגדרת משתני הסביבה של הדאטהבייס מתוך ה-Kubernetes Secret
+          - name: POSTGRES_USER
+            valueFrom:
+              secretKeyRef:
+                name: backend-db-secret
+                key: postgres-user
+          - name: POSTGRES_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: backend-db-secret
+                key: postgres-password
+          - name: POSTGRES_DB
+            value: {{ .Values.postgres.database.name }}
+          
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres-data-pvc

@@ -1,0 +1,108 @@
+version: '3.8'
+
+services:
+  # ===================================
+  # 1. שירות PostgreSQL
+  # ===================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: my_postgres
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mydb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ===================================
+  # 2. שירות Backend (Master / FastAPI)
+  # ===================================
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: my_backend
+    ports:
+      - "8000:8000" 
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mydb
+      DB_HOST: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ===================================
+  # 3. שירות Frontend (React/Nginx)
+  # ===================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: my_frontend
+    ports:
+      - "3000:80" 
+    depends_on:
+      - backend
+
+  # ===================================
+  # 4. שירות Prometheus
+  # ===================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: my_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+      - backend
+
+  # ===================================
+  # 5. שירות Grafana
+  # ===================================
+  grafana:
+    	image: grafana/grafana:latest
+    container_name: my_grafana
+    ports:
+      - "4000:3000"
+    depends_on:
+      - prometheus 
+
+  # ===================================
+  # 6. שירות Agent (הסוכן שישלח נתונים ל-Master)
+  # ===================================
+  agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    container_name: my_agent
+    environment:
+      MASTER_URL: http://backend:8000/api/agent/data 
+      AGENT_HOSTNAME: docker-compose-agent
+    depends_on:
+      - backend
+    # 🔑 הרשאות קריטיות לאיסוף נתונים אמיתיים:
+    volumes:
+      # גישה לשקע הדוקר (לאיסוף נתוני קונטיינרים)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # גישה למערכת הקבצים של המארח (עבור psutil לאיסוף נתונים מפורטים)
+      - /:/host:ro
+    # הרצת הקונטיינר במצב Host PID Namespace (עבור psutil)
+    pid: "host" 
+    # הרצת הקונטיינר במצב מועדף
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+
+# אחסון קבוע לנתוני הדאטהבייס
+volumes:
+  postgres_data:

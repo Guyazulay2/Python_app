@@ -1,0 +1,17 @@
+global:
+  # קצב גריפה (Scrape) ברירת מחדל
+  scrape_interval: 15s 
+
+scrape_configs:
+  # 1. Job: ניטור Prometheus עצמו
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # 2. Job: ניטור שירות ה-Backend (FastAPI)
+  - job_name: 'backend'
+    # 🎯 Prometheus יגש לשם השירות 'backend' בתוך רשת ה-Docker
+    static_configs:
+      - targets: ['backend:8000'] 
+    # הנתיב שחשפת ב-FastAPI (main.py: app.mount("/metrics", metrics_app))
+    metrics_path: '/metrics'

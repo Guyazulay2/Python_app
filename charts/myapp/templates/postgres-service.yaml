@@ -1,0 +1,16 @@
+# charts/myapp/templates/postgres-service.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.postgres.serviceName }} # 🎯 my-postgres-service
+  labels:
+    app: postgres
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432       # הפורט שה-Service חושף החוצה (בתוך הקלאסטר)
+      targetPort: 5432 # הפורט שהקונטיינר של PostgreSQL מאזין לו
+      protocol: TCP
+  selector:
+    app: postgres # מפנה לפודים עם התווית 'postgres'

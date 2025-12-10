@@ -1,0 +1,92 @@
+# ===============================================
+# 1. Backend Deployment (Python/FastAPI)
+# הפריסה של קוד ה-Python/FastAPI שלך
+# ===============================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels:
+    app: backend
+spec:
+  # הגדר את מספר הרפליקות הרצוי
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+      - name: backend
+        # התמונה והתגית נמשכים מקובץ values.yaml
+        image: "{{ .Values.backend.image }}:{{ .Values.backend.tag }}"
+        ports:
+        - containerPort: 8000
+        env:
+        
+        # 🔒 POSTGRES_USER נמשך מתוך ה-Kubernetes Secret
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: backend-db-secret # שם ה-Secret שיצרנו בקובץ backend-secret.yaml
+              key: postgres-user      # המפתח בתוך ה-Secret
+              
+        # 🔒 POSTGRES_PASSWORD נמשך מתוך ה-Kubernetes Secret
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: backend-db-secret
+              key: postgres-password
+              
+        - name: POSTGRES_DB
+          value: "prod_db" 
+          
+        # 🎯 המארח (Host) הוא שם ה-Service של הדאטהבייס בתוך K8S.
+        # ערך זה רלוונטי רק אם PostgreSQL רץ כ-Pod באותו אשכול.
+        - name: DB_HOST
+          value: "my-postgres-service" 
+
+        # הגדרת Liveness ו-Readiness Probes לבדיקת תקינות הקונטיינר
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          
+---
+# ===============================================
+# 2. Frontend Deployment (React/Nginx)
+# הפריסה של קוד ה-React שלך
+# ===============================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: frontend
+        # התמונה והתגית נמשכים מקובץ values.yaml
+        image: "{{ .Values.frontend.image }}:{{ .Values.frontend.tag }}"
+        ports:
+        - containerPort: 80

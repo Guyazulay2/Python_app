@@ -1,0 +1,18 @@
+# charts/myapp/templates/postgres-pvc.yaml
+
+{{- if .Values.postgres.persistence.enabled -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data-pvc
+  labels:
+    app: postgres
+spec:
+  accessModes:
+    - {{ .Values.postgres.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.postgres.persistence.size }}
+  # ⚠️ ודא שהשם הזה תקין ב-AKS שלך. 'standard' הוא בדרך כלל ברירת המחדל.
+  storageClassName: {{ .Values.postgres.persistence.storageClass }} 
+{{- end -}}

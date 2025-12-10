@@ -1,0 +1,38 @@
+# ===========================
+# BACKEND SERVICE (Internal)
+# ===========================
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  labels:
+    app: backend
+spec:
+  type: ClusterIP  # סוג פנימי - לא חשוף לאינטרנט, רק בתוך הקלאסטר
+  ports:
+    - port: 80         # הפורט שה-Service חושף החוצה (בתוך הקלאסטר)
+      targetPort: 8000 # הפורט שהקונטיינר של הפייתון מאזין לו
+      protocol: TCP
+      name: http
+  selector:
+    app: backend   # מפנה את התעבורה לפודים עם התווית הזו
+
+---
+# ===========================
+# FRONTEND SERVICE (External)
+# ===========================
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  type: LoadBalancer # סוג חיצוני - Azure יצור עבור זה Public IP
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: http
+  selector:
+    app: frontend
