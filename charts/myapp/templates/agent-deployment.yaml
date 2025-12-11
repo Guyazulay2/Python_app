@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent
+  labels:
+    app: agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent
+  template:
+    metadata:
+      labels:
+        app: agent
+    spec:
+      # 🚨 הגדרה קריטית 1: הרצת הקונטיינר ב-Host PID Namespace
+      # מאפשר ל-Agent לראות את תהליכי המארח (Host)
+      hostPID: true
+      
+      containers:
+      - name: agent
+        # התמונה והתגית נמשכים מקובץ values.yaml (כגון app_azure-agent)
+        image: "{{ .Values.agent.image }}:{{ .Values.agent.tag }}"
+        
+        # ✅ התיקון הקריטי: מושך תמונה מקומית במקום לנסות למשוך מהענן
+        imagePullPolicy: {{ .Values.agent.imagePullPolicy | default "IfNotPresent" }}
+
+        env:
+          # משתני סביבה קריטיים
+        - name: MASTER_URL
+          # 💡 זה צריך להצביע על ה-Service הפנימי של ה-Backend
+          value: "{{ .Values.agent.masterUrl }}" 
+        - name: AGENT_HOSTNAME
+          value: "k8s-agent-host"
+        
+        volumeMounts:
+        # 🚨 הגדרה קריטית 2: הרכבת שקע הדוקר
+        # מאפשר ל-Agent לאסוף נתוני קונטיינרים
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+          readOnly: true
+          
+        # 🚨 הגדרה קריטית 3: גישה למערכת הקבצים של המארח
+        # נדרש כדי לאסוף נתונים על המערכת כולה (עבור psutil)
+        - name: host-root
+          mountPath: /host
+          readOnly: true
+        
+        # 💡 הגדרות הרשאות מיוחדות הדרושות לסוכן ניטור/איסוף נתונים
+        securityContext:
+          capabilities:
+            add:
+              - NET_ADMIN
+              - SYS_ADMIN
+
+      # הגדרת Volumes המשתמשים ב-HostPath (הקריטיות ל-Agent)
+      volumes:
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+        - name: host-root
+          hostPath:
+            path: /

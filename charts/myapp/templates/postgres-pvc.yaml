@@ -1,5 +1,3 @@
-# charts/myapp/templates/postgres-pvc.yaml
-
 {{- if .Values.postgres.persistence.enabled -}}
 apiVersion: v1
 kind: PersistentVolumeClaim

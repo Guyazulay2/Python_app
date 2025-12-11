@@ -1,6 +1,3 @@
-# ===========================
-# BACKEND SERVICE (Internal)
-# ===========================
 apiVersion: v1
 kind: Service
 metadata:
@@ -18,9 +15,6 @@ spec:
     app: backend   # מפנה את התעבורה לפודים עם התווית הזו
 
 ---
-# ===========================
-# FRONTEND SERVICE (External)
-# ===========================
 apiVersion: v1
 kind: Service
 metadata:
@@ -28,7 +22,7 @@ metadata:
   labels:
     app: frontend
 spec:
-  type: LoadBalancer # סוג חיצוני - Azure יצור עבור זה Public IP
+  type: NodePort   # סוג חיצוני - Azure יצור עבור זה Public IP
   ports:
     - port: 80
       targetPort: 80

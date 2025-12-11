@@ -1,25 +1,36 @@
 backend:
-  image: REPLACE_ME_ACR_URL/backend-app
+  # 💡 תיקון: השם המדויק
+  image: app_azure-backend
   tag: latest
-  #  הסודות מוזרמים ישירות מה-Pipeline אל ה-Helm Chart
+  imagePullPolicy: IfNotPresent 
   secrets:
-    DB_USER: "" 
-    DB_PASSWORD: "" 
+    DB_USER: "user" 
+    DB_PASSWORD: "password" 
 
 frontend:
-  image: REPLACE_ME_ACR_URL/frontend-app
+  # 💡 תיקון: השם המדויק
+  image: app_azure-frontend
   tag: latest
+  imagePullPolicy: IfNotPresent
 
+agent:
+  # 💡 תיקון: השם המדויק
+  image: app_azure-agent
+  tag: latest
+  masterUrl: "http://backend:8000/api/agent/data" 
+  imagePullPolicy: IfNotPresent
+  
+ 
 postgres:
   image: postgres:15-alpine
-  # שם ה-Service שה-Backend משתמש בו להתחברות
   serviceName: my-postgres-service 
-  # הגדרות אחסון קבוע
   persistence:
     enabled: true
-    storageClass: standard # השתמש ב-Storage Class המוגדר ב-AKS
+    # 💡 תיקון 4: שינוי לריק (ברירת המחדל של Minikube) במקום 'standard' של AKS
+    storageClass: "" 
     accessMode: ReadWriteOnce
     size: 5Gi
-  # הגדרות דאטהבייס
   database:
-    name: prod_db # שם הדאטהבייס שקוד הפייתון מצפה לו
+    # 💡 תיקון 5: שם הדאטהבייס שקובע ה-docker-compose
+    name: mydb
+
