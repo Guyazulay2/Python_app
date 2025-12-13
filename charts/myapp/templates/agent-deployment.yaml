@@ -32,7 +32,9 @@ spec:
           # 💡 זה צריך להצביע על ה-Service הפנימי של ה-Backend
           value: "{{ .Values.agent.masterUrl }}" 
         - name: AGENT_HOSTNAME
-          value: "k8s-agent-host"
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
         
         volumeMounts:
         # 🚨 הגדרה קריטית 2: הרכבת שקע הדוקר

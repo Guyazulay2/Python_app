@@ -38,7 +38,7 @@ spec:
               key: postgres-password
               
         - name: POSTGRES_DB
-          value: "prod_db" 
+          value: {{ .Values.postgres.database.name | quote }} 
           
         # 🎯 המארח (Host) הוא שם ה-Service של הדאטהבייס בתוך K8S.
         # ערך זה רלוונטי רק אם PostgreSQL רץ כ-Pod באותו אשכול.

@@ -1,36 +1,62 @@
+# charts/myapp/values.yaml - מותאם להרצה מקומית ב-Minikube (כולל Agent)
+
+# ========================================================
+# הגדרות Backend (FastAPI)
+# ========================================================
 backend:
-  # 💡 תיקון: השם המדויק
-  image: app_azure-backend
+  # שימוש בתמונות המקומיות שבנינו (local/backend-app)
+  image: local/backend-app
   tag: latest
   imagePullPolicy: IfNotPresent 
+  
+  # סודות (נשארים ריקים ונדרסים בהרצה עם --set)
   secrets:
-    DB_USER: "user" 
-    DB_PASSWORD: "password" 
+    DB_USER: "" 
+    DB_PASSWORD: "" 
+    
+  replicaCount: 1
 
+# ========================================================
+# הגדרות Frontend (React/Nginx)
+# ========================================================
 frontend:
-  # 💡 תיקון: השם המדויק
-  image: app_azure-frontend
+  # שימוש בתמונות המקומיות שבנינו (local/frontend-app)
+  image: local/frontend-app
   tag: latest
   imagePullPolicy: IfNotPresent
+  replicaCount: 1
 
+# ========================================================
+# **חדש:** הגדרות Agent (איסוף נתונים)
+# ========================================================
 agent:
-  # 💡 תיקון: השם המדויק
-  image: app_azure-agent
+  # שימוש בתמונות המקומיות שבנינו (local/agent-app)
+  image: local/agent-app
   tag: latest
-  masterUrl: "http://backend:8000/api/agent/data" 
   imagePullPolicy: IfNotPresent
   
- 
+  # ה-Master URL פונה לשם ה-Service הפנימי של ה-Backend ב-Kubernetes
+  masterUrl: "http://backend:80/api/agent/data" 
+  
+  # הערה: יש לוודא שקובץ ה-Deployment של ה-Agent 
+  # יכלול את ה-hostPath volumes ואת הרשאות ה-Privileged Security Context 
+  # הדרושות לקונטיינר מסוג זה (בדומה ל-docker-compose).
+
+# ========================================================
+# הגדרות PostgreSQL
+# ========================================================
 postgres:
   image: postgres:15-alpine
   serviceName: my-postgres-service 
+  
   persistence:
-    enabled: true
-    # 💡 תיקון 4: שינוי לריק (ברירת המחדל של Minikube) במקום 'standard' של AKS
+    # **תיקון חיוני ל-Minikube:** השבתת PVC
+    enabled: false
+    # **תיקון חיוני ל-Minikube:** שימוש ב-StorageClass ריק
     storageClass: "" 
     accessMode: ReadWriteOnce
     size: 5Gi
+    
   database:
-    # 💡 תיקון 5: שם הדאטהבייס שקובע ה-docker-compose
+    # שם הדאטהבייס שנקבע ב-docker-compose וב-backend/database.py
     name: mydb
-

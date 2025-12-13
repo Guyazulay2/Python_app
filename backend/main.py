@@ -1,22 +1,38 @@
-# main.py - FastAPI Network Monitoring Master
-# הרצה: uvicorn main:app --reload --host 0.0.0.0 --port 8000
-# דרישות: pip install fastapi uvicorn pydantic
+# main.py - FastAPI Network Monitoring Master (קוד סופי ומתוקן)
 
-from fastapi import FastAPI, HTTPException, WebSocket
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, ValidationError
-from typing import List, Dict, Any, Optional
-import time
-import json
+import os
 import logging
-import asyncio
+import json
+from datetime import datetime
+from typing import List, Dict, Any, Optional
 
-# הגדרת לוגים
+# --- FastAPI Imports ---
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session # ייבוא Session ל-Type Hinting
+
+# --- SQLAlchemy / DB Imports ---
+from sqlalchemy import create_engine, Column, Integer, String, JSON, DateTime
+from sqlalchemy.orm import sessionmaker 
+from sqlalchemy.ext.declarative import declarative_base
+
+# --- Prometheus Imports ---
+from prometheus_client import make_wsgi_app, Counter
+from fastapi.middleware.wsgi import WSGIMiddleware
+
+# --- הגדרות לוגים ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # =======================================================
-# 1. Pydantic Models (תואם ל-Agent ול-Frontend)
+# 1. הגדרת FastAPI (חובה להיות ראשון!)
+# =======================================================
+
+app = FastAPI(title="Network Monitor Master") 
+
+# =======================================================
+# 2. Pydantic Models (תואם ל-Agent)
 # =======================================================
 
 class Connection(BaseModel):
@@ -46,6 +62,7 @@ class NetworkStats(BaseModel):
     packets_sent: int
     packets_recv: int
 
+# מודל Snapshot הראשי שמתקבל מה-Agent
 class AgentSnapshot(BaseModel):
     timestamp: str
     hostname: str
@@ -54,218 +71,286 @@ class AgentSnapshot(BaseModel):
     containers: List[DockerContainer]
     dns_queries: List[str]
     network_stats: NetworkStats
+    
+    # מאפשר שימוש בשמות שדות שאינם Pythonic כמו "BytesSent"
+    model_config = {'populate_by_name': True} 
 
-class Anomaly(BaseModel):
-    timestamp: str
-    severity: str
-    type: str
-    message: str
-    details: Optional[Dict[str, Any]] = None
-
-class TopologyNode(BaseModel):
-    id: str
-    label: str
-    ip: str
-    status: str
-    classification: str
-
-class TopologyEdge(BaseModel):
-    source: str
-    target: str
-    bytes: int
 
 # =======================================================
-# 2. Global State & Mock Data (נתוני דמה)
+# 3. קונפיגורציית DB ו-SQLAlchemy
 # =======================================================
 
-def create_mock_data():
-    """יוצר נתוני דמה להתחלה לפני קבלת Snapshot."""
-    mock_connections = [
-        Connection(src_ip="172.18.0.3", src_port=54321, dst_ip="172.18.0.2", dst_port=8000, state="ESTABLISHED", bytes_sent=10240, bytes_recv=5120).model_dump(),
-        Connection(src_ip="172.18.0.4", src_port=44332, dst_ip="8.8.8.8", dst_port=53, state="CLOSE_WAIT").model_dump(),
-    ]
-    mock_containers = [
-        DockerContainer(id="abc1", name="backend", image="python:3.10", ip_address="172.18.0.2", ports=["8000/tcp"], networks=["app_net"], status="running", labels={}).model_dump(),
-        DockerContainer(id="def2", name="db", image="postgres", ip_address="172.18.0.3", ports=["5432/tcp"], networks=["app_net"], status="running", labels={}).model_dump(),
-    ]
-    mock_ports = [{"port": 8000, "container": "backend"}, {"port": 5432, "container": "db"}]
-    
-    mock_anomalies = [
-        Anomaly(
-            timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            severity="LOW",
-            type="Connection Spike",
-            message="Initial dummy anomaly for testing.",
-            details={"count": 55}
-        ).model_dump()
-    ]
-    
-    mock_topology = {
-        "nodes": [
-            TopologyNode(id="backend", label="Backend Service", ip="172.18.0.2", status="running", classification="App").model_dump(),
-            TopologyNode(id="db", label="Postgres DB", ip="172.18.0.3", status="running", classification="Database").model_dump(),
-        ],
-        "edges": [
-            TopologyEdge(source="backend", target="db", bytes=10000).model_dump()
-        ]
-    }
-    
-    return {
-        "connections": mock_connections, 
-        "containers": mock_containers, 
-        "ports": mock_ports,
-        "anomalies": mock_anomalies,
-        "topology": mock_topology,
-        "stats": {
-            "total_connections": len(mock_connections), 
-            "total_containers": len(mock_containers), 
-            "total_ports": len(mock_ports),
-            "bytes_in_per_sec": 12000,
-            "bytes_out_per_sec": 8000
-        }
-    }
+DB_USER = os.getenv("POSTGRES_USER", "user")
+DB_PASSWORD = os.getenv("POSTGRES_PASSWORD", "password")
+DB_NAME = os.getenv("POSTGRES_DB", "mydb")
+# DB_HOST חייב להיות שם השירות של ה-DB ב-docker-compose
+DB_HOST = os.getenv("DB_HOST", "db") 
+
+SQLALCHEMY_DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:5432/{DB_NAME}"
+
+Base = declarative_base()
+
+class Snapshot(Base):
+    """מודל SQLAlchemy לשמירת Snapshot ב-PostgreSQL."""
+    __tablename__ = "snapshots"
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    hostname = Column(String, index=True)
+    connections = Column(JSON)
+    open_ports = Column(JSON)
+    containers = Column(JSON)
+    network_stats = Column(JSON)
+    dns_queries = Column(JSON)
+
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, 
+    pool_size=10, 
+    max_overflow=20
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Dependency ל-FastAPI: מחזיר Session DB
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+@app.on_event("startup")
+def startup_db():
+    """יצירת טבלאות עם הפעלת האפליקציה"""
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database tables successfully created/checked.")
+    except Exception as e:
+        logger.error(f"Failed to connect or create DB tables: {e}")
+        logger.error("DB connection failed. Check DB_HOST and credentials.")
+
+# =======================================================
+# 4. Global State & Prometheus
+# =======================================================
 
 class GlobalState:
-    last_snapshot: Dict[str, Any] = create_mock_data()
-    previous_network_stats: Optional[NetworkStats] = None
-    previous_timestamp: Optional[float] = None
-    active_websockets: List[WebSocket] = [] # לניהול חיבורי WebSocket
+    # מאחסן את ה-Snapshot האחרון שהתקבל
+    last_snapshot: Optional[Dict[str, Any]] = None 
+    # רשימת חיבורי WebSocket פעילים
+    active_websockets: List[WebSocket] = [] 
     
 STATE = GlobalState()
-app = FastAPI()
+
+# --- הגדרת Prometheus ---
+data_received_counter = Counter(
+    'master_data_received_total', 
+    'Total number of data snapshots received from agents'
+)
+metrics_app = make_wsgi_app()
+app.mount("/metrics", WSGIMiddleware(metrics_app)) 
 
 # =======================================================
-# 3. Middlewares (CORS)
+# 5. Middlewares (CORS)
 # =======================================================
-
+# התיקון הקריטי ל-Frontend: מאפשר גישה מפורט 3000
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    # חשוב: ניתן לקבע ל-"*" אבל עדיף לרשום את הכתובות המדויקות
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# =======================================================
-# 4. Agent Endpoint (קליטת נתונים)
-# =======================================================
-
-@app.post("/api/agent/data")
-async def receive_agent_data(snapshot: AgentSnapshot):
-    """קליטת Snapshot מה-Agent ושמירת הנתונים הגולמיים."""
-    global STATE
-    
-    now = time.time()
-    
-    # חישוב קצב העברת נתונים
-    if STATE.previous_network_stats and STATE.previous_timestamp:
-        time_diff = now - STATE.previous_timestamp
-        
-        bytes_recv_diff = snapshot.network_stats.bytes_recv - STATE.previous_network_stats.bytes_recv
-        STATE.last_snapshot["stats"]["bytes_in_per_sec"] = round(bytes_recv_diff / time_diff, 2) if time_diff > 0 else 0
-
-        bytes_sent_diff = snapshot.network_stats.bytes_sent - STATE.previous_network_stats.bytes_sent
-        STATE.last_snapshot["stats"]["bytes_out_per_sec"] = round(bytes_sent_diff / time_diff, 2) if time_diff > 0 else 0
-
-    # שמירת נתוני Agent
-    STATE.last_snapshot["connections"] = snapshot.connections
-    STATE.last_snapshot["containers"] = snapshot.containers
-    
-    # עדכון פורטים לפורמט הנדרש
-    STATE.last_snapshot["ports"] = [{"port": p, "container": "System"} for p in snapshot.open_ports]
-    
-    # עדכון סטטיסטיקות
-    STATE.last_snapshot["stats"]["total_connections"] = len(snapshot.connections)
-    STATE.last_snapshot["stats"]["total_containers"] = len(snapshot.containers)
-    STATE.last_snapshot["stats"]["total_ports"] = len(snapshot.open_ports)
-    
-    STATE.previous_network_stats = snapshot.network_stats
-    STATE.previous_timestamp = now
-    
-    logger.info(f"Master received data from {snapshot.hostname}. Connections: {len(snapshot.connections)}")
-    
-    # שידור עדכון לכל ה-WebSockets שמחוברים (לצורך עדכון מיידי ב-Frontend)
-    await broadcast_snapshot_update()
-    
-    return {"message": "Data received and processed successfully"}
-
-async def broadcast_snapshot_update():
-    """שולח הודעת 'snapshot' לכל ה-WebSockets הפעילים."""
-    message = {"type": "snapshot"}
+# --- WebSocket Manager (פונקציית שידור) ---
+async def broadcast_snapshot_update(snapshot_data: Dict[str, Any]):
+    """שולח את ה-Snapshot המלא לכל ה-WebSockets הפעילים."""
+    # שולח הודעה פשוטה ל-Frontend שמבצע משיכת נתונים
+    message = json.dumps({"type": "snapshot_update"}) 
     dead_connections = []
+    
     for ws in STATE.active_websockets:
         try:
-            await ws.send_json(message)
-        except RuntimeError:
+            await ws.send_text(message)
+        except (RuntimeError, WebSocketDisconnect):
             dead_connections.append(ws)
     
     # הסרת חיבורים מתים
     for ws in dead_connections:
-        STATE.active_websockets.remove(ws)
+        if ws in STATE.active_websockets:
+            STATE.active_websockets.remove(ws)
 
 
 # =======================================================
-# 5. Frontend API Endpoints (ה-6 הנדרשים)
+# 6. Agent Endpoint (קליטת נתונים ושמירה ל-DB)
+# =======================================================
+
+@app.post("/api/agent/data")
+async def receive_agent_data(snapshot: AgentSnapshot, db: Session = Depends(get_db)):
+    """קליטת Snapshot מה-Agent, שמירה ל-DB, ושידור ל-Frontend."""
+    
+    # המרת מודל Pydantic ל-dict
+    current_snapshot_data = snapshot.model_dump(by_alias=True)
+    
+    # 1. שמירת Snapshot ל-DB
+    try:
+        new_snapshot = Snapshot(
+            timestamp=datetime.now(),
+            hostname=snapshot.hostname,
+            connections=current_snapshot_data.get("connections", []),
+            open_ports=current_snapshot_data.get("open_ports", []),
+            containers=current_snapshot_data.get("containers", []),
+            network_stats=current_snapshot_data.get("network_stats", {}),
+            dns_queries=current_snapshot_data.get("dns_queries", []),
+        )
+        db.add(new_snapshot)
+        db.commit()
+        db.refresh(new_snapshot)
+        
+        # 2. עדכון מונה Prometheus
+        data_received_counter.inc()
+        logger.info(f"Master received data from {snapshot.hostname}. DB Write: OK.")
+
+    except Exception as e:
+        logger.error(f"Database insertion failed for {snapshot.hostname}: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Database insertion failed.")
+    
+    # 3. עדכון המצב הגלובלי (משמש ל-HTTP GET)
+    STATE.last_snapshot = current_snapshot_data
+
+    # 4. שידור עדכון לכל ה-WebSockets
+    await broadcast_snapshot_update(current_snapshot_data)
+    
+    return {"message": "Data received, saved, and broadcasted successfully"}
+
+# =======================================================
+# 7. Frontend API Endpoints (משיכת נתונים)
 # =======================================================
 
 @app.get("/api/connections")
 async def get_connections():
-    """Endpoint 1/6: חיבורים פעילים."""
-    return {"connections": STATE.last_snapshot["connections"]}
+    """Endpoint 1/7: חיבורים פעילים."""
+    if not STATE.last_snapshot:
+        raise HTTPException(status_code=404, detail="No snapshot data available.")
+    return {"connections": STATE.last_snapshot.get("connections", [])}
 
 @app.get("/api/containers")
 async def get_containers():
-    """Endpoint 2/6: מידע על קונטיינרים."""
-    return {"containers": STATE.last_snapshot["containers"]}
+    """Endpoint 2/7: מידע על קונטיינרים."""
+    if not STATE.last_snapshot:
+        raise HTTPException(status_code=404, detail="No snapshot data available.")
+    return {"containers": STATE.last_snapshot.get("containers", [])}
 
 @app.get("/api/ports")
 async def get_ports():
-    """Endpoint 3/6: פורטים פתוחים."""
-    return {"ports": STATE.last_snapshot["ports"]}
+    """Endpoint 3/7: פורטים פתוחים."""
+    if not STATE.last_snapshot:
+        raise HTTPException(status_code=404, detail="No snapshot data available.")
+    
+    ports_list = STATE.last_snapshot.get("open_ports", [])
+    # יצירת מבנה הנתונים הנדרש על ידי ה-Frontend
+    formatted_ports = [{"port": p, "container": "System"} for p in ports_list]
+    return {"ports": formatted_ports}
 
 @app.get("/api/anomalies")
 async def get_anomalies():
-    """Endpoint 4/6: אנומליות ואירועים חריגים."""
-    return {"anomalies": STATE.last_snapshot["anomalies"]}
+    """Endpoint 4/7: אנומליות (כרגע מחזיר רשימה ריקה)."""
+    # אם תרצה להוסיף לוגיקת אנומליות בעתיד, היא תבוא לכאן
+    return {"anomalies": []} 
 
 @app.get("/api/stats")
 async def get_stats():
-    """Endpoint 5/6: סטטיסטיקות כלליות (לכרטיסיות)."""
-    return STATE.last_snapshot["stats"]
+    """Endpoint 5/7: סטטיסטיקות כלליות."""
+    if not STATE.last_snapshot:
+        # מחזיר אפסים במקום שגיאה כדי שה-Frontend לא יקרוס
+        return {
+            "total_connections": 0, "total_containers": 0, "total_ports": 0,
+            "bytes_sent": 0, "bytes_recv": 0
+        }
+        
+    stats_raw = STATE.last_snapshot.get("network_stats", {})
+    
+    return {
+        "total_connections": len(STATE.last_snapshot.get("connections", [])),
+        "total_containers": len(STATE.last_snapshot.get("containers", [])),
+        "total_ports": len(STATE.last_snapshot.get("open_ports", [])),
+        # שימוש בשמות השדות כפי שהם ב-Pydantic (עם alias)
+        "bytes_sent": stats_raw.get("BytesSent", 0), 
+        "bytes_recv": stats_raw.get("BytesReceived", 0)
+    }
 
 @app.get("/api/topology")
 async def get_topology():
-    """Endpoint 6/6: נתוני טופולוגיה (Nodes & Edges)."""
-    return STATE.last_snapshot["topology"]
+    """Endpoint 6/7: נתוני טופולוגיה (מודלים בסיסיים)."""
+    if not STATE.last_snapshot:
+        raise HTTPException(status_code=404, detail="No snapshot data available.")
+
+    nodes = []
+    # יצירת צומתי טופולוגיה מהקונטיינרים
+    for cont in STATE.last_snapshot.get("containers", []):
+        nodes.append({
+            "id": cont.get('name', cont['id']),
+            "label": cont.get('name', 'Unknown'),
+            "ip": cont.get('ip_address', 'N/A'),
+            "status": cont.get('status', 'N/A'),
+            "classification": "Container"
+        })
+
+    return {"nodes": nodes, "edges": []}
+
+@app.get("/api/history")
+# שימוש ב-Depends(get_db) כדי לקבל Session DB
+def get_history(db: Session = Depends(get_db), limit: int = 10): 
+    """Endpoint 7/7: מחזיר את ה-Snapshots האחרונים מה-DB."""
+    try:
+        # שאילתת SQLAlchemy
+        history = db.query(Snapshot).order_by(Snapshot.timestamp.desc()).limit(limit).all()
+        
+        results = [{
+            "timestamp": item.timestamp.isoformat(),
+            "hostname": item.hostname,
+            "connections_count": len(item.connections),
+            "containers_count": len(item.containers),
+        } for item in history]
+        
+        return {"status": "ok", "data": results}
+    except Exception as e:
+        logger.error(f"Failed to fetch history: {e}")
+        raise HTTPException(status_code=500, detail="Error fetching history.")
+
 
 # =======================================================
-# 6. WebSocket Endpoint (לעדכונים בזמן אמת)
+# 8. WebSocket Endpoint 
 # =======================================================
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    """מטפל בחיבורי WebSocket מול ה-Frontend."""
     await websocket.accept()
     STATE.active_websockets.append(websocket)
-    logger.info("New WebSocket connection accepted.")
-    try:
-        # לולאה שרצה ושומרת על החיבור פתוח
-        while True:
-            # מקבלת הודעה אבל לא עושה איתה כלום (רק שומרת על חיבור דו-כיווני)
-            await websocket.receive_text()
-    except Exception as e:
-        logger.warning(f"WebSocket connection closed: {e}")
-    finally:
-        # ניקוי החיבור כשהוא נסגר
-        STATE.active_websockets.remove(websocket)
 
+    # שליחת ה-Snapshot הראשוני מיד לאחר החיבור
+    if STATE.last_snapshot:
+        # הודעה מפורטת עם כל הנתונים (או שתשתמש ב-broadcast_snapshot_update)
+        await websocket.send_text(json.dumps({"type": "initial_snapshot", "data": STATE.last_snapshot})) 
+
+    try:
+        # לולאה שמחזיקה את החיבור פתוח
+        while True:
+            # ממתין לקבלת הודעות מהלקוח (לא חובה, אבל שומר על הלולאה פעילה)
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        # ניתוק תקין
+        if websocket in STATE.active_websockets:
+            STATE.active_websockets.remove(websocket)
+    except Exception as e:
+        # ניתוק לא תקין
+        logger.error(f"WebSocket error: {e}")
+        if websocket in STATE.active_websockets:
+            STATE.active_websockets.remove(websocket)
 
 # =======================================================
-# 7. הוראות הרצה
+# 9. הוראות הרצה (אם מריצים ישירות ולא דרך uvicorn)
 # =======================================================
 if __name__ == "__main__":
     import uvicorn
-    print("----------------------------------------------------------------------")
-    print("🚀 Network Master is running and listening on 0.0.0.0:8000")
-    print("----------------------------------------------------------------------")
-    # הרצה עם Uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

@@ -4,16 +4,25 @@ import React, { useState, useEffect, useCallback } from 'react';
 // ייבוא האייקונים מ-lucide-react
 import { Activity, Server, Network, AlertTriangle, Box, Zap, Clock, TrendingUp } from 'lucide-react';
 
-// קביעת כתובת בסיס ל-API
-const API_BASE_URL = 'http://localhost:8000'; 
-const WS_URL = 'ws://localhost:8000/ws';
+// ======================================================
+// 1. התיקון הקריטי: קביעת כתובות API ו-WS בקיבוע
+// ======================================================
+
+const API_BASE_HOST_PORT = 'localhost:8000';
+const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+
+// קביעת כתובת בסיס ל-API (http://localhost:8000)
+const API_BASE_URL = `http://${API_BASE_HOST_PORT}`; 
+// קביעת כתובת WebSocket (ws://localhost:8000/ws)
+const WS_URL = `${wsProtocol}://${API_BASE_HOST_PORT}/ws`;
 
 // ======================================================
-// רכיבי עזר
+// 2. רכיבי עזר (ללא שינוי מהותי, הועברו למעלה)
 // ======================================================
 
 // Stat Card Component
 const StatCard = ({ icon, label, value, color }) => (
+    // ... (קוד StatCard כפי שהיה)
     <div className="transition-all hover-scale" style={{
         background: 'rgba(30, 41, 59, 0.5)',
         backdropFilter: 'blur(10px)',
@@ -43,6 +52,7 @@ const StatCard = ({ icon, label, value, color }) => (
 
 // Topology View
 const TopologyView = ({ data }) => (
+    // ... (קוד TopologyView כפי שהיה)
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px' }}>
         <div style={{
             background: 'rgba(30, 41, 59, 0.5)',
@@ -135,6 +145,7 @@ const TopologyView = ({ data }) => (
 
 // Connections View
 const ConnectionsView = ({ connections }) => (
+    // ... (קוד ConnectionsView כפי שהיה)
     <div style={{
         background: 'rgba(30, 41, 59, 0.5)',
         backdropFilter: 'blur(10px)',
@@ -189,6 +200,7 @@ const ConnectionsView = ({ connections }) => (
 
 // Containers View
 const ContainersView = ({ containers }) => (
+    // ... (קוד ContainersView כפי שהיה)
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
         {containers.map((container, i) => (
             <div key={i} className="transition-all hover-scale" style={{
@@ -255,6 +267,7 @@ const ContainersView = ({ containers }) => (
 
 // Ports View
 const PortsView = ({ ports }) => (
+    // ... (קוד PortsView כפי שהיה)
     <div style={{
         background: 'rgba(30, 41, 59, 0.5)',
         backdropFilter: 'blur(10px)',
@@ -295,6 +308,7 @@ const PortsView = ({ ports }) => (
 
 // Anomalies View
 const AnomaliesView = ({ anomalies }) => (
+    // ... (קוד AnomaliesView כפי שהיה)
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {anomalies.length === 0 ? (
             <div style={{
@@ -387,9 +401,10 @@ const AnomaliesView = ({ anomalies }) => (
 
 
 // ======================================================
-// רכיב ראשי
+// 3. רכיב ראשי (NetworkDashboard)
 // ======================================================
 const NetworkDashboard = () => {
+    // Hooks חייבים להיות בראש הפונקציה
     const [activeView, setActiveView] = useState('topology');
     const [data, setData] = useState({
         topology: { nodes: [], edges: [] },
@@ -401,66 +416,81 @@ const NetworkDashboard = () => {
     });
     const [isConnected, setIsConnected] = useState(false);
 
-    // WebSocket connection
-    useEffect(() => {
-        // שימוש בכתובת WS_URL הקבועה למעלה
-        const ws = new WebSocket(WS_URL);
-
-        ws.onopen = () => {
-            setIsConnected(true);
-            console.log('Connected to master');
-        };
-
-        ws.onmessage = (event) => {
-            const message = JSON.parse(event.data);
-            if (message.type === 'snapshot') {
-                // כאשר מתקבלת הודעה ב-WebSocket, מביאים את כל הנתונים מחדש
-                fetchAllData();
-            }
-        };
-
-        ws.onclose = () => setIsConnected(false);
-
-        return () => ws.close();
-    }, []);
-
-    // Fetch data from API
+    // פונקציית משיכת נתונים מרוכזת (משתמשת ב-useCallback כדי למנוע יצירה מחדש)
     const fetchAllData = useCallback(async () => {
         try {
+            // ה-Promise.all מבצע את כל הקריאות במקביל
             const [topology, connections, containers, ports, anomalies, stats] = await Promise.all([
-                fetch(`${API_BASE_URL}/api/topology`).then(r => r.json()), // תיקון ל-API_BASE_URL
-                fetch(`${API_BASE_URL}/api/connections`).then(r => r.json()), // תיקון ל-API_BASE_URL
-                fetch(`${API_BASE_URL}/api/containers`).then(r => r.json()), // תיקון ל-API_BASE_URL
-                fetch(`${API_BASE_URL}/api/ports`).then(r => r.json()), // תיקון ל-API_BASE_URL
-                fetch(`${API_BASE_URL}/api/anomalies`).then(r => r.json()), // תיקון ל-API_BASE_URL
-                fetch(`${API_BASE_URL}/api/stats`).then(r => r.json()), // תיקון ל-API_BASE_URL
+                fetch(`${API_BASE_URL}/api/topology`).then(r => r.json()),
+                fetch(`${API_BASE_URL}/api/connections`).then(r => r.json()),
+                fetch(`${API_BASE_URL}/api/containers`).then(r => r.json()),
+                fetch(`${API_BASE_URL}/api/ports`).then(r => r.json()),
+                fetch(`${API_BASE_URL}/api/anomalies`).then(r => r.json()),
+                fetch(`${API_BASE_URL}/api/stats`).then(r => r.json()),
             ]);
 
+            // מעדכן את ה-State של הנתונים
             setData({
                 topology,
                 connections: connections.connections || [],
                 containers: containers.containers || [],
                 ports: ports.ports || [],
                 anomalies: anomalies.anomalies || [],
-                stats
+                stats: stats
             });
+            console.log("Data fetched successfully.");
         } catch (error) {
             console.error('Error fetching data:', error);
+            // אם יש שגיאת CORS או שרת, זה יופיע כאן
         }
-    }, []);
+    }, []); // מערך תלויות ריק כי אנו משתמשים במשתנים גלובליים (API_BASE_URL)
 
+    // WebSocket connection
     useEffect(() => {
-        fetchAllData();
-        // טיימר רגיל לשליפת נתונים בנוסף ל-WebSocket (למקרה שה-WS נכשל)
+        const ws = new WebSocket(WS_URL);
+
+        ws.onopen = () => {
+            setIsConnected(true);
+            console.log('Connected to master');
+            // משיכה ראשונית של נתונים מיד לאחר החיבור
+            fetchAllData(); 
+        };
+
+        ws.onmessage = (event) => {
+            const message = JSON.parse(event.data);
+            
+            // מטפלים בסוגי ההודעות מה-Backend
+            if (message.type === 'snapshot_update' || message.type === 'initial_snapshot') {
+                fetchAllData();
+            }
+        };
+
+        ws.onclose = () => {
+            setIsConnected(false);
+            console.log('WebSocket Disconnected');
+        };
+        ws.onerror = (error) => {
+            console.error('WebSocket Error:', error);
+            // נשאר setIsConnected(false) לאחר שגיאה
+        };
+
+        return () => ws.close();
+    }, [fetchAllData]); // תלוי ב-fetchAllData
+
+    // טיימר רגיל לשליפת נתונים בנוסף ל-WebSocket (למקרה שה-WS נכשל)
+    useEffect(() => {
+        // משיכה ראשונית של נתונים בטעינת הרכיב
+        fetchAllData(); 
         const interval = setInterval(fetchAllData, 5000); 
         return () => clearInterval(interval);
     }, [fetchAllData]);
 
+
     return (
         <>
-            {/* ... קוד ה-CSS Inline כפי שסיפקת ... */}
+            {/* ... קוד ה-CSS Inline ... */}
             <style>{`
-		* {
+        * {
           margin: 0;
           padding: 0;
           box-sizing: border-box;

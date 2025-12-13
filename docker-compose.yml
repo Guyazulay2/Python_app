@@ -57,14 +57,12 @@ services:
   # 4. שירות Prometheus
   # ===================================
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus
     container_name: my_prometheus
+    volumes:
+      - /home/ubuntu/Desktop/app_azure/prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
       - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-    depends_on:
-      - backend
 
   # ===================================
   # 5. שירות Grafana
